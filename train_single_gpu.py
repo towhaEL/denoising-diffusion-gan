@@ -246,22 +246,13 @@ def train(args):
     
     # Optimizers
     optimizerD = optim.Adam(netD.parameters(), lr=args.lr_d, betas=(args.beta1, args.beta2))
-    #optimizerG = optim.Adam(netG.parameters(), lr=args.lr_g, betas=(args.beta1, args.beta2))
-    optG = optim.Adam(netG.parameters(), lr=args.lr_g, betas=(args.beta1, args.beta2))
+    optimizerG = optim.Adam(netG.parameters(), lr=args.lr_g, betas=(args.beta1, args.beta2))
 
     if args.use_ema:
-        optimizerG = EMA(optG, ema_decay=args.ema_decay)
-    else:
-        optimizerG = optG
-
-    schedulerG = torch.optim.lr_scheduler.CosineAnnealingLR(optG, args.num_epoch, eta_min=1e-5)
-
-    
-    #if args.use_ema:
-     #   optimizerG = EMA(optimizerG, ema_decay=args.ema_decay)
+        optimizerG = EMA(optimizerG, ema_decay=args.ema_decay)
     
     # Schedulers
-    #schedulerG = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerG, args.num_epoch, eta_min=1e-5)
+    schedulerG = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerG, args.num_epoch, eta_min=1e-5)
     schedulerD = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerD, args.num_epoch, eta_min=1e-5)
     
     # Setup experiment directory
