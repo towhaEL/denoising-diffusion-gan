@@ -8,30 +8,35 @@
 '''
 Codes adapted from https://github.com/NVlabs/LSGM/blob/main/util/ema.py
 '''
-import warnings
-
 import torch
 from torch.optim import Optimizer
+import warnings
 
 
-class EMA:
+class EMA(Optimizer):
     def __init__(self, opt, ema_decay):
         self.ema_decay = ema_decay
         self.apply_ema = self.ema_decay > 0.
         self.optimizer = opt
+        self.state = opt.state
+        self.param_groups = opt.param_groups
+        self._optimizer_state_dict_pre_hooks = {}  # Initialize hooks dictionary
 
     def step(self, *args, **kwargs):
         retval = self.optimizer.step(*args, **kwargs)
 
+        # Stop here if we are not applying EMA
         if not self.apply_ema:
             return retval
 
         ema, params = {}, {}
         for group in self.optimizer.param_groups:
-            for p in group['params']:
+            for i, p in enumerate(group['params']):
                 if p.grad is None:
                     continue
                 state = self.optimizer.state[p]
+
+                # State initialization
                 if 'ema' not in state:
                     state['ema'] = p.data.clone()
 
@@ -42,39 +47,60 @@ class EMA:
                 params[p.shape]['data'].append(p.data)
                 ema[p.shape].append(state['ema'])
 
-            for k in params:
-                params[k]['data'] = torch.stack(params[k]['data'], dim=0)
-                ema[k] = torch.stack(ema[k], dim=0)
-                ema[k].mul_(self.ema_decay).add_(params[k]['data'], alpha=1. - self.ema_decay)
+            for i in params:
+                params[i]['data'] = torch.stack(params[i]['data'], dim=0)
+                ema[i] = torch.stack(ema[i], dim=0)
+                ema[i].mul_(self.ema_decay).add_(params[i]['data'], alpha=1. - self.ema_decay)
 
             for p in group['params']:
                 if p.grad is None:
                     continue
                 idx = params[p.shape]['idx']
-                self.optimizer.state[p]['ema'] = ema[p.shape][idx]
+                self.optimizer.state[p]['ema'] = ema[p.shape][idx, :]
                 params[p.shape]['idx'] += 1
 
         return retval
 
-    def state_dict(self):
-        return self.optimizer.state_dict()
-
     def load_state_dict(self, state_dict):
-        self.optimizer.load_state_dict(state_dict)
+        super(EMA, self).load_state_dict(state_dict)
+        # load_state_dict loads the data to self.state and self.param_groups. We need to pass this data to
+        # the underlying optimizer too.
+        self.optimizer.state = self.state
+        self.optimizer.param_groups = self.param_groups
+
+    def state_dict(self):
+        state_dict = self.optimizer.state_dict()
+        # Include hooks if necessary
+        if hasattr(self, '_optimizer_state_dict_pre_hooks'):
+            for hook in self._optimizer_state_dict_pre_hooks.values():
+                hook(state_dict)
+        return state_dict
+
+    def register_state_dict_pre_hook(self, hook):
+        """Registers a pre-hook to modify the state_dict before it's returned"""
+        if not hasattr(self, '_optimizer_state_dict_pre_hooks'):
+            self._optimizer_state_dict_pre_hooks = {}
+        hook_id = len(self._optimizer_state_dict_pre_hooks)
+        self._optimizer_state_dict_pre_hooks[hook_id] = hook
+        return hook_id
 
     def swap_parameters_with_ema(self, store_params_in_ema):
+        """This function swaps parameters with their EMA values. It records original parameters in the ema
+        parameters, if store_params_in_ema is true."""
+
+        # stop here if we are not applying EMA
         if not self.apply_ema:
             warnings.warn('swap_parameters_with_ema was called when there is no EMA weights.')
             return
 
         for group in self.optimizer.param_groups:
-            for p in group['params']:
+            for i, p in enumerate(group['params']):
                 if not p.requires_grad:
                     continue
                 ema = self.optimizer.state[p]['ema']
                 if store_params_in_ema:
-                    tmp = p.data.detach().clone()
-                    p.data.copy_(ema)
+                    tmp = p.data.detach()
+                    p.data = ema.detach()
                     self.optimizer.state[p]['ema'] = tmp
                 else:
-                    p.data.copy_(ema)
+                    p.data = ema.detach()
