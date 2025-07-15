@@ -19,6 +19,7 @@ from datasets_prep.lsun import LSUN
 from datasets_prep.stackmnist_data import StackedMNIST, _data_transforms_stacked_mnist
 from datasets_prep.lmdb_datasets import LMDBDataset
 import shutil
+from tqdm.auto import tqdm
 
 
 def copy_source(file, output_dir):
@@ -286,7 +287,7 @@ def train(args):
         global_step, init_epoch = 0, 0
     
     # Training loop
-    for epoch in range(init_epoch, args.num_epoch + 1):
+    for epoch in tqdm(range(init_epoch, args.num_epoch + 1)):
         for iteration, (x, y) in enumerate(data_loader):
             # Train Discriminator
             for p in netD.parameters():  
